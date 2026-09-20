@@ -2735,15 +2735,22 @@ def main():
     CLIENTS_DB  = BASE_DIR / "clients.json"
     REPORTS_DIR.mkdir(exist_ok=True)
 
-    # ── 3. Find a free port (default 5000) ───────────────────────────────────
-    port = 5000
-    for _p in [5000, 5001, 5002, 5003, 5050, 8080]:
-        try:
-            s = socket.socket(); s.bind(("127.0.0.1", _p)); s.close(); port = _p; break
-        except OSError:
-            continue
+    # ── 3. Find port — Render uses PORT env var, local scans for free port ──────
+    is_render = bool(os.environ.get("RENDER", ""))
 
-    url = f"http://127.0.0.1:{port}"
+    if is_render:
+        port = int(os.environ.get("PORT", 5000))
+        host = "0.0.0.0"
+        url  = f"http://0.0.0.0:{port}"
+    else:
+        host = "127.0.0.1"
+        port = 5000
+        for _p in [5000, 5001, 5002, 5003, 5050, 8080]:
+            try:
+                s = socket.socket(); s.bind(("127.0.0.1", _p)); s.close(); port = _p; break
+            except OSError:
+                continue
+        url = f"http://127.0.0.1:{port}"
 
     # ── 4. Console banner ─────────────────────────────────────────────────────
     _days_left = (LICENCE_EXPIRY - date.today()).days
@@ -2764,17 +2771,19 @@ def main():
         print(f"  Machine ID      : {_lic_info.get('machine_id','?')}")
     print()
     print(f"  Login           : admin / admin123")
-    print(f"  Opening browser : {url}")
+    print(f"  Mode            : {'RENDER (cloud)' if is_render else 'LOCAL'}")
+    print(f"  URL             : {url}")
     print("=" * 62)
 
-    # ── 5. Open browser after 1.5 s (lets Flask start first) ─────────────────
-    def _open_browser():
-        import time as _t; _t.sleep(1.5)
-        webbrowser.open(url)
-    _th.Thread(target=_open_browser, daemon=True).start()
+    # ── 5. Open browser (local only) ─────────────────────────────────────────
+    if not is_render:
+        def _open_browser():
+            import time as _t; _t.sleep(1.5)
+            webbrowser.open(url)
+        _th.Thread(target=_open_browser, daemon=True).start()
 
     # ── 6. Start Flask ────────────────────────────────────────────────────────
-    app.run(host="127.0.0.1", port=port, debug=False, threaded=True, use_reloader=False)
+    app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False)
 
 if __name__ == "__main__":
     main()
