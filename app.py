@@ -88,7 +88,12 @@ OTP_EXPIRY_MINUTES    = 10      # OTP valid for 10 minutes
 # ── Licence expiry ────────────────────────────────────────────────────────────
 LICENCE_EXPIRY = date(2027, 8, 31)   # Software auto-shuts-down after this date
 
+# ── Cloud / Render mode ───────────────────────────────────────────────────────
+IS_RENDER = bool(os.environ.get("RENDER", ""))
+
 def _licence_expired() -> bool:
+    if IS_RENDER:
+        return False   # No date kill-switch on cloud
     return date.today() > LICENCE_EXPIRY
 
 _EXPIRY_HTML = """<!DOCTYPE html>
@@ -268,6 +273,10 @@ _LIC_CACHE = {"valid": False, "checked_at": 0.0, "status": {}}
 _LIC_LOCK  = _lic_th.Lock()
 
 def _get_licence_status(force: bool = False) -> dict:
+    if IS_RENDER:
+        return {"valid": True, "reason": "Cloud mode — no licence required",
+                "machine_id": "CLOUD", "expiry": "99991231", "days_left": 9999,
+                "exp_date": "31 Dec 2099"}
     """Return cached licence status, refreshing at most every 60 seconds."""
     import time as _t
     with _LIC_LOCK:
@@ -564,8 +573,13 @@ def _enforce_expiry():
     Gate every request behind:
       1. Software kill-switch (date expiry)
       2. Machine-locked licence key
+    On Render (cloud), licence check is skipped — login controls access.
     Only /activate passes through without a valid key.
     """
+    # Cloud mode — skip all licence checks
+    if IS_RENDER:
+        return None
+
     # Always allow the activation route (GET + POST)
     if request.path.rstrip("/") == "/activate":
         return None
@@ -2716,17 +2730,18 @@ def main():
         sys.exit(0)
 
     # ── 1b. Licence key check at startup ────────────────────────────────────
-    _lic_startup = _get_licence_status(force=True)
-    if not _lic_startup["valid"]:
-        mid = _lic_startup.get("machine_id", "UNKNOWN")
-        print("=" * 62)
-        print("  TallySync Pro — LICENCE KEY REQUIRED")
-        print(f"  Reason     : {_lic_startup.get('reason','No key found')}")
-        print(f"  Machine ID : {mid}")
-        print(f"  Send your Machine ID to your administrator to get your key.")
-        print(f"  Then open the browser and enter the key to activate.")
-        print("=" * 62)
-        # Do NOT exit — Flask starts so the user can enter the key via browser
+    if not IS_RENDER:
+        _lic_startup = _get_licence_status(force=True)
+        if not _lic_startup["valid"]:
+            mid = _lic_startup.get("machine_id", "UNKNOWN")
+            print("=" * 62)
+            print("  TallySync Pro — LICENCE KEY REQUIRED")
+            print(f"  Reason     : {_lic_startup.get('reason','No key found')}")
+            print(f"  Machine ID : {mid}")
+            print(f"  Send your Machine ID to your administrator to get your key.")
+            print(f"  Then open the browser and enter the key to activate.")
+            print("=" * 62)
+            # Do NOT exit — Flask starts so the user can enter the key via browser
 
     # ── 2. Re-root BASE_DIR / REPORTS_DIR / CLIENTS_DB for EXE ──────────────
     global BASE_DIR, REPORTS_DIR, CLIENTS_DB
@@ -2736,9 +2751,7 @@ def main():
     REPORTS_DIR.mkdir(exist_ok=True)
 
     # ── 3. Find port — Render uses PORT env var, local scans for free port ──────
-    is_render = bool(os.environ.get("RENDER", ""))
-
-    if is_render:
+    if IS_RENDER:
         port = int(os.environ.get("PORT", 5000))
         host = "0.0.0.0"
         url  = f"http://0.0.0.0:{port}"
@@ -2771,12 +2784,11 @@ def main():
         print(f"  Machine ID      : {_lic_info.get('machine_id','?')}")
     print()
     print(f"  Login           : admin / admin123")
-    print(f"  Mode            : {'RENDER (cloud)' if is_render else 'LOCAL'}")
-    print(f"  URL             : {url}")
+    print(f"  Opening browser : {url}")
     print("=" * 62)
 
     # ── 5. Open browser (local only) ─────────────────────────────────────────
-    if not is_render:
+    if not IS_RENDER:
         def _open_browser():
             import time as _t; _t.sleep(1.5)
             webbrowser.open(url)
