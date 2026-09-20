@@ -1,0 +1,7 @@
+dist/
+dist_new/
+build/
+*.pyc
+licence_*.txt
+*.spec
+__pycache__/

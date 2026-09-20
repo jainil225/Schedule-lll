@@ -1,0 +1,7 @@
+flask
+werkzeug
+reportlab
+requests
+lxml
+pillow
+openpyxl
