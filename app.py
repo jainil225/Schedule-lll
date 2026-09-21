@@ -91,6 +91,14 @@ LICENCE_EXPIRY = date(2027, 8, 31)   # Software auto-shuts-down after this date
 # ── Cloud / Render mode ───────────────────────────────────────────────────────
 IS_RENDER = bool(os.environ.get("RENDER", ""))
 
+def _build_tally_url(host: str, port: int) -> str:
+    """Build correct Tally URL — https for tunnel hosts, http for local."""
+    host = host.strip()
+    tunnel_hosts = ("trycloudflare.com", "ngrok-free.app", "ngrok.io", "loca.lt")
+    if any(h in host for h in tunnel_hosts):
+        return f"https://{host}"
+    return f"http://{host}:{port}"
+
 def _licence_expired() -> bool:
     if IS_RENDER:
         return False   # No date kill-switch on cloud
@@ -628,7 +636,7 @@ def _run_job(jid, username, company, year, host, port, gen_classic, autosync_py,
                       "started":datetime.now().isoformat()}
     old = sys.stdout; sys.stdout = _Writer(logs)
     try:
-        turl = f"http://{host}:{port}"
+        turl = _build_tally_url(host, port)
         core.set_tally_url(turl)
         raw, fs, fe = core.fetch_all(company, year, save_json=False,
                                      from_date=from_date, to_date=to_date)
@@ -1945,7 +1953,7 @@ def dashboard():
         tok = _tally_ok(u["tally_host"], u["tally_port"])
         if tok:
             try:
-                core.set_tally_url(f"http://{u['tally_host']}:{u['tally_port']}")
+                core.set_tally_url(_build_tally_url(u["tally_host"], u["tally_port"]))
                 cos = core.list_companies()
                 al  = [c.upper() for c in (u.get("allowed_companies") or [])]
                 companies = [c for c in cos if c.upper() in al] if al else cos
@@ -1967,6 +1975,15 @@ def generate():
     u    = get_user(session["username"])
     host = request.form.get("host", u["tally_host"]).strip() or u["tally_host"]
     port = int(request.form.get("port", u["tally_port"]) or 9000)
+    # Auto-save tally host/port so it persists for this user
+    if host != u["tally_host"] or port != u["tally_port"]:
+        try:
+            data = load_db()
+            un = session["username"]
+            data["users"][un]["tally_host"] = host
+            data["users"][un]["tally_port"] = port
+            save_db(data)
+        except Exception: pass
     co   = (request.form.get("company_manual","").strip() or
             request.form.get("company","").strip())
     if not co:
@@ -2042,10 +2059,19 @@ def api_job(jid):
 def api_companies():
     if not CORE_OK: return jsonify({"companies":[],"error":"tally_core.py not loaded"})
     u = get_user(session["username"])
-    host = request.args.get("host", u["tally_host"])
+    host = request.args.get("host", u["tally_host"]).strip()
     port = int(request.args.get("port", u["tally_port"]) or 9000)
+    # Auto-save tally host/port so it persists for this user
+    if host and (host != u["tally_host"] or port != u["tally_port"]):
+        try:
+            data = load_db()
+            un = session["username"]
+            data["users"][un]["tally_host"] = host
+            data["users"][un]["tally_port"] = port
+            save_db(data)
+        except Exception: pass
     try:
-        core.set_tally_url(f"http://{host}:{port}")
+        core.set_tally_url(_build_tally_url(host, port))
         cos = core.list_companies()
         al  = [c.upper() for c in (u.get("allowed_companies") or [])]
         if al: cos = [c for c in cos if c.upper() in al]
